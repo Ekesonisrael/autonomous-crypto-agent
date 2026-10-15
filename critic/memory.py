@@ -1,4 +1,4 @@
-"""Trade feedback loop and self-correcting meta-layer."""
+"""True learning critic: analyzes historical trade performance to adapt weights."""
 import json
 import os
 import config
@@ -6,12 +6,6 @@ import config
 class TradeCritic:
     def __init__(self):
         self.log_path = config.LOG_PATH
-
-    def log_trade(self, trade_dict):
-        history = self.load_history()
-        history.append(trade_dict)
-        with open(self.log_path, "w") as f:
-            json.dump(history, f, indent=2)
 
     def load_history(self):
         if not os.path.exists(self.log_path):
@@ -24,20 +18,28 @@ class TradeCritic:
 
     def get_adaptive_weights(self):
         history = self.load_history()
-        if len(history) < 5:
-            return {"risk_multiplier": 1.0, "pause_shorts": False, "pause_longs": False}
+        if len(history) < 3:
+            return {"risk_multiplier": 1.0, "long_confidence_boost": 1.0, "short_confidence_boost": 1.0, "reason": "insufficient_data"}
 
-        recent = history[-10:]
-        short_trades = [t for t in recent if t.get('side') == 'SHORT']
-        
-        # Pause shorts if they exhibit heavy underperformance recently
-        pause_shorts = False
-        if len(short_trades) >= 4:
-            losses = sum(1 for t in short_trades if t.get('status') == 'LOSS')
-            if (losses / len(short_trades)) >= 0.7:
-                pause_shorts = True
+        # Analyze rolling performance of the last 20 trades
+        recent = history[-20:]
+        longs = [t for t in recent if t.get('side') == 'LONG']
+        shorts = [t for t in recent if t.get('side') == 'SHORT']
 
-        # Reduce risk multiplier if a consecutive loss streak hits
+        def get_expectancy(trades):
+            if not trades:
+                return 0.5
+            wins = sum(1 for t in trades if t.get('status') == 'WIN')
+            return wins / len(trades)
+
+        long_win_rate = get_expectancy(longs)
+        short_win_rate = get_expectancy(shorts)
+
+        # Dynamic learning adjustments
+        long_boost = 1.2 if long_win_rate > 0.6 else (0.5 if long_win_rate < 0.3 else 1.0)
+        short_boost = 1.2 if short_win_rate > 0.6 else (0.5 if short_win_rate < 0.3 else 1.0)
+
+        # Global risk multiplier based on overall recent drawdowns or loss streaks
         consecutive_losses = 0
         for t in reversed(history):
             if t.get('status') == 'LOSS':
@@ -49,6 +51,7 @@ class TradeCritic:
 
         return {
             "risk_multiplier": risk_mult,
-            "pause_shorts": pause_shorts,
-            "pause_longs": False
+            "long_confidence_boost": long_boost,
+            "short_confidence_boost": short_boost,
+            "reason": f"learned from {len(history)} past trades (L_win: {long_win_rate:.2f}, S_win: {short_win_rate:.2f})"
         }
