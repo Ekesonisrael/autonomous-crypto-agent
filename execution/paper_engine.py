@@ -1,12 +1,12 @@
-"""Main paper execution loop with live data fetching, strategy evaluation, and safety guards."""
+"""Autonomous execution engine combining technicals, fundamentals, and critic learning."""
 import time
 from datetime import datetime, timezone
-from data.fetcher import load_symbol_data
+from data.fetcher import load_symbol_data, fetch_funding_rate, fetch_market_sentiment
 from core.strategy import SwingStrategy
 from critic.memory import TradeCritic
 import config
 
-class PaperEngine:
+class AutonomousAgentEngine:
     def __init__(self):
         self.strategy = SwingStrategy()
         self.critic = TradeCritic()
@@ -18,65 +18,59 @@ class PaperEngine:
         if self.balance > self.peak_balance:
             self.peak_balance = self.balance
         drawdown = (self.peak_balance - self.balance) / self.peak_balance
-        if drawdown >= 0.05:  # 5% max drawdown guardrail
+        if drawdown >= 0.05:
             self.is_halted = True
-            print(f"🚨 CIRCUIT BREAKER TRIGGERED: Drawdown {drawdown*100:.2f}% exceeds limit. Trading halted.")
+            print(f"🚨 CIRCUIT BREAKER TRIGGERED: Drawdown {drawdown*100:.2f}% exceeds limit. Halting agent.")
 
     def run_cycle(self):
-        print("\n" + "="*70)
-        print(f" 🤖 RUNNING AGENT CYCLE AT {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print("="*70)
+        print("\n" + "="*80)
+        print(f" 🧠 AUTONOMOUS AGENT CYCLE | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
+        print("="*80)
 
+        # 1. Fetch macro/fundamental intelligence
+        sentiment = fetch_market_sentiment()
         weights = self.critic.get_adaptive_weights()
-        print(f"[Critic Meta-Layer] Risk Multiplier: {weights['risk_multiplier']} | Pause Shorts: {weights['pause_shorts']}")
+        print(f"[Macro Intelligence] Fear & Greed Index: {sentiment}/100")
+        print(f"[Critic Memory] {weights['reason']} | Risk Mult: {weights['risk_multiplier']}")
 
         for symbol in config.SYMBOLS:
             try:
-                # 1. Fetch real multi-timeframe candles using our data module
+                # 2. Gather data & fundamentals
                 h_df, h4_df, d1_df = load_symbol_data(symbol, days=60)
+                funding_rate = fetch_funding_rate(symbol)
                 
-                # 2. Evaluate strategy signals
+                # 3. Evaluate technical setup
                 result = self.strategy.evaluate(h_df, h4_df, d1_df)
-                
                 signal = result.get("signal", 0)
-                reason = result.get("reason", "active")
                 
                 if signal != 0:
                     side = result.get("side")
-                    # Check dynamic meta-rules from critic
-                    if side == "SHORT" and weights["pause_shorts"]:
-                        print(f"  ⚠️ {symbol}: SHORT signal generated, but paused by Critic layer.")
+                    
+                    # 4. Autonomous filtering using fundamentals and learning memory
+                    # Filter out longs if market is in extreme fear and funding is extremely negative, etc.
+                    confidence_boost = weights["long_confidence_boost"] if side == "LONG" else weights["short_confidence_boost"]
+                    
+                    # Fundamental filter: Avoid going long if funding rate is heavily positive (over-leveraged longs paying shorts)
+                    if side == "LONG" and funding_rate > 0.0005:
+                        print(f"  ⚠️ {symbol}: Technical LONG signal, but blocked by Fundamental filter (High positive funding rate: {funding_rate:.5f})")
                         continue
-                        
-                    print(f"  ✅ SIGNAL DETECTED FOR {symbol}!")
-                    print(f"     Side   : {side}")
-                    print(f"     Entry  : ${result.get('entry'):,.2f}")
-                    print(f"     Stop Loss : ${result.get('sl'):,.2f} ({result.get('stop_pct'):.2f}%)")
-                    print(f"     Take Profit: ${result.get('tp'):,.2f}")
+
+                    if confidence_boost < 0.8:
+                        print(f"  ⚠️ {symbol}: Technical {side} signal, but blocked by Critic Memory (Low historical expectancy).")
+                        continue
+
+                    print(f"  🚀 AUTONOMOUS TRADE DECISION APPROVED FOR {symbol}!")
+                    print(f"     Side           : {side}")
+                    print(f"     Entry Price    : ${result.get('entry'):,.2f}")
+                    print(f"     Stop Loss      : ${result.get('sl'):,.2f} ({result.get('stop_pct'):.2f}%)")
+                    print(f"     Take Profit    : ${result.get('tp'):,.2f}")
+                    print(f"     Funding Rate   : {funding_rate:.5f}")
                 else:
-                    print(f"  ℹ️ {symbol}: No setup ({reason})")
+                    print(f"  ℹ️ {symbol}: No setup ({result.get('reason', 'flat')}) | Funding: {funding_rate:.5f}")
 
             except Exception as e:
                 print(f"  ❌ Error processing {symbol}: {e}")
 
-    def run_loop(self):
-        print("="*70)
-        print(" 🚀 AUTONOMOUS PAPER TRADING AGENT INITIALIZED")
-        print("="*70)
-        
-        while True:
-            if self.is_halted:
-                print("Bot is halted due to circuit breakers. Sleeping...")
-                time.sleep(300)
-                continue
-
-            self.check_circuit_breakers()
-            self.run_cycle()
-            
-            print("\nSleeping for 1 hour until next candle check...")
-            time.sleep(3600)  # Poll hourly
-
 if __name__ == "__main__":
-    engine = PaperEngine()
-    # To test a single cycle immediately instead of looping forever:
-    engine.run_cycle()
+    agent = AutonomousAgentEngine()
+    agent.run_cycle()
