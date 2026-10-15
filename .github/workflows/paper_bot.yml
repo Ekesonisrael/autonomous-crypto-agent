@@ -24,8 +24,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Paper Trading Cycle
+   - name: Run Paper Trading Cycle
       run: |
+        export PYTHONPATH=$PWD
         python execution/paper_engine.py
 
     - name: Commit Trade Logs / State Updates
