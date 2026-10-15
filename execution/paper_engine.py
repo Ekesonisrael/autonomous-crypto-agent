@@ -1,10 +1,29 @@
-"""Autonomous execution engine combining technicals, fundamentals, and critic learning."""
+"""Autonomous execution engine with Telegram alerts, fundamentals, and critic learning."""
 import time
+import os
+import requests
 from datetime import datetime, timezone
 from data.fetcher import load_symbol_data, fetch_funding_rate, fetch_market_sentiment
 from core.strategy import SwingStrategy
 from critic.memory import TradeCritic
 import config
+
+def send_telegram_alert(message):
+    """Send real-time alerts via Telegram Bot API."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"Failed to send Telegram alert: {e}")
 
 class AutonomousAgentEngine:
     def __init__(self):
@@ -20,14 +39,15 @@ class AutonomousAgentEngine:
         drawdown = (self.peak_balance - self.balance) / self.peak_balance
         if drawdown >= 0.05:
             self.is_halted = True
-            print(f"🚨 CIRCUIT BREAKER TRIGGERED: Drawdown {drawdown*100:.2f}% exceeds limit. Halting agent.")
+            msg = f"🚨 *CIRCUIT BREAKER TRIGGERED*: Drawdown {drawdown*100:.2f}% exceeds limit. Halting agent."
+            print(msg)
+            send_telegram_alert(msg)
 
     def run_cycle(self):
         print("\n" + "="*80)
         print(f" 🧠 AUTONOMOUS AGENT CYCLE | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC")
         print("="*80)
 
-        # 1. Fetch macro/fundamental intelligence
         sentiment = fetch_market_sentiment()
         weights = self.critic.get_adaptive_weights()
         print(f"[Macro Intelligence] Fear & Greed Index: {sentiment}/100")
@@ -35,36 +55,36 @@ class AutonomousAgentEngine:
 
         for symbol in config.SYMBOLS:
             try:
-                # 2. Gather data & fundamentals
                 h_df, h4_df, d1_df = load_symbol_data(symbol, days=60)
                 funding_rate = fetch_funding_rate(symbol)
                 
-                # 3. Evaluate technical setup
                 result = self.strategy.evaluate(h_df, h4_df, d1_df)
                 signal = result.get("signal", 0)
                 
                 if signal != 0:
                     side = result.get("side")
-                    
-                    # 4. Autonomous filtering using fundamentals and learning memory
-                    # Filter out longs if market is in extreme fear and funding is extremely negative, etc.
                     confidence_boost = weights["long_confidence_boost"] if side == "LONG" else weights["short_confidence_boost"]
                     
-                    # Fundamental filter: Avoid going long if funding rate is heavily positive (over-leveraged longs paying shorts)
                     if side == "LONG" and funding_rate > 0.0005:
-                        print(f"  ⚠️ {symbol}: Technical LONG signal, but blocked by Fundamental filter (High positive funding rate: {funding_rate:.5f})")
+                        print(f"  ⚠️ {symbol}: LONG signal blocked by Fundamental filter (High funding: {funding_rate:.5f})")
                         continue
 
                     if confidence_boost < 0.8:
-                        print(f"  ⚠️ {symbol}: Technical {side} signal, but blocked by Critic Memory (Low historical expectancy).")
+                        print(f"  ⚠️ {symbol}: {side} signal blocked by Critic Memory (Low historical win rate).")
                         continue
 
-                    print(f"  🚀 AUTONOMOUS TRADE DECISION APPROVED FOR {symbol}!")
-                    print(f"     Side           : {side}")
-                    print(f"     Entry Price    : ${result.get('entry'):,.2f}")
-                    print(f"     Stop Loss      : ${result.get('sl'):,.2f} ({result.get('stop_pct'):.2f}%)")
-                    print(f"     Take Profit    : ${result.get('tp'):,.2f}")
-                    print(f"     Funding Rate   : {funding_rate:.5f}")
+                    alert_msg = (
+                        f"🚀 *AUTONOMOUS TRADE SIGNAL* 🚀\n"
+                        f"• *Symbol*: `{symbol}`\n"
+                        f"• *Side*: `{side}`\n"
+                        f"• *Entry*: `${result.get('entry'):,.2f}`\n"
+                        f"• *Stop Loss*: `${result.get('sl'):,.2f}` ({result.get('stop_pct'):.2f}%)\n"
+                        f"• *Take Profit*: `${result.get('tp'):,.2f}`\n"
+                        f"• *Sentiment Index*: `{sentiment}/100`\n"
+                        f"• *Funding Rate*: `{funding_rate:.5f}`"
+                    )
+                    print(f"  🚀 TRADE APPROVED FOR {symbol}! Sending Telegram notification...")
+                    send_telegram_alert(alert_msg)
                 else:
                     print(f"  ℹ️ {symbol}: No setup ({result.get('reason', 'flat')}) | Funding: {funding_rate:.5f}")
 
